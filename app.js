@@ -182,6 +182,7 @@ World.prototype.newAgent=function(opts){
   if(opts.mother) opts.mother.children.push(a.id);
   if(opts.father) opts.father.children.push(a.id);
   this.generationMax=Math.max(this.generationMax,a.generation);
+  a.px=a.x; a.py=a.y; a.dir=0; a.moving=false;
   return a;
 };
 World.prototype.genAgents=function(n){
@@ -263,6 +264,13 @@ World.prototype.decide=function(a){
 World.prototype.tribeHasTech=function(tribeId,techId){ const tr=this.tribes.find(t=>t.id===tribeId); return tr&&tr.tech[techId]; };
 World.prototype.doAction=function(a,act){
   const rng=this.rng, tile=this.tileOf(a); a.lastAction=act;
+  // visible walking: at most one tile per day, never into the ocean
+  if(['gather','hunt','fish','farm','mine','social','work'].indexOf(act)>=0){
+    const dx=rng.int(-1,1), dy=rng.int(-1,1);
+    const nx=clamp(a.x+dx,0,this.W-1), ny=clamp(a.y+dy,0,this.H-1);
+    const nt=this.tileAt(nx,ny);
+    if(nt&&nt.biome!=='ocean'){ if(dx||dy){a.dir=Math.atan2(dy,dx); a.moving=true;} a.x=nx; a.y=ny; } else a.moving=false;
+  } else a.moving=false;
   const gainSkill=(name,amt)=>{ const sk=a.skills[name]; sk.xp+=amt; if(sk.xp>=10){sk.lvl=Math.min(10,sk.lvl+1); sk.xp=0; a.memories.push({year:this.year,text:'مهارت '+name+' به سطح '+sk.lvl+' رسید'});} };
   if(act==='gather'){ const y=Math.round(tile.foodDensity*8*(this.weather.rain?1.2:1)*(this.weather.drought?0.3:1)); a.food+=y; this.supply.food+=y*0.5; gainSkill('شکار',1); a.needs.food=clamp(a.needs.food+15,0,100); }
   else if(act==='hunt'){ if(rng.chance(0.5+a.skills['شکار'].lvl*0.04)){ a.food+=10; this.supply.food+=5; } a.needs.food=clamp(a.needs.food+10,0,100); gainSkill('شکار',2); if(rng.chance(0.05)) a.health-=5; }
@@ -276,7 +284,7 @@ World.prototype.doAction=function(a,act){
     const others=this.agents.filter(o=>o!==a&&o.alive&&Math.hypot(o.x-a.x,o.y-a.y)<6); if(others.length){ const o=rng.pick(others); this.addRel(a.id,o.id,2,'friend'); if(rng.chance(0.1)) a.memories.push({year:this.year,text:'با '+o.name+' دوست شد'}); } }
   else if(act==='marry'){ this.tryMarry(a); }
   else if(act==='repro'){ this.tryPregnancy(a); }
-  else if(act==='migrate'){ const dest=this.nearestTile(a,t=>t.biome!=='ocean'&&t.foodDensity>0.6); if(dest){ a.x=dest.x+rng.int(-3,3); a.y=dest.y+rng.int(-3,3); a.memories.push({year:this.year,text:'به منطقه حاصلخیزتر مهاجرت کرد'}); this.log('migration',a.name+' مهاجرت کرد','کمبود غذا باعث مهاجرت شد.',[a.id]); } }
+  else if(act==='migrate'){ const dest=this.nearestTile(a,t=>t.biome!=='ocean'&&t.foodDensity>0.6); if(dest){ a.x=clamp(dest.x+rng.int(-3,3),0,this.W-1); a.y=clamp(dest.y+rng.int(-3,3),0,this.H-1); a.px=a.x; a.py=a.y; a.memories.push({year:this.year,text:'به منطقه حاصلخیزتر مهاجرت کرد'}); this.log('migration',a.name+' مهاجرت کرد','کمبود غذا باعث مهاجرت شد.',[a.id]); } }
   else if(act==='work'){ this.doJob(a); }
   else if(act==='learn'){ gainSkill(rng.pick(SKILLS),2); a.needs.achievement=clamp(a.needs.achievement+8,0,100); const tr=this.tribes.find(t=>t.id===a.tribe); if(tr&&a.skills['تحقیق'].lvl>=2) tr.research+=a.ph.intelligence*0.2; }
   // eat & drink every day (real consumption)
@@ -293,7 +301,7 @@ World.prototype.buyFood=function(a){
 };
 World.prototype.doJob=function(a){
   if(!a.job){ // pick best job by skill & wage & demand
-    let best=null,bs=-1; for(const j of JOBS){ const crowded=this.agents.filter(o=>o.job===j.id).length; const s=a.skills[j.skill].lvl*2+j.wage*(this.demand[j.id]||1)/10-crowded*1.5; if(s>bs){bs=s;best=j;} } a.job=best.id; }
+    let best=null,bs=-Infinity; for(const j of JOBS){ const crowded=this.agents.filter(o=>o.job===j.id).length; const s=a.skills[j.skill].lvl*2+j.wage*(this.demand[j.id]||1)/10-Math.min(crowded,10)*1.5; if(s>bs){bs=s;best=j;} } if(!best) best=JOBS[0]; a.job=best.id; }
   const j=JOBS.find(x=>x.id===a.job); if(!j) return;
   const wage=j.wage*(1+(this.demand[j.id]||0)/50);
   a.money+=wage; a.income+=wage;
@@ -359,6 +367,7 @@ World.prototype.tick=function(){
   const snapshot=this.agents.slice();
   for(const a of snapshot){
     if(!a.alive) continue;
+    if(a.px==null){ a.px=a.x; a.py=a.y; }
     a.age+=1/365;
     if(a.pregnant){ a.pregnantDays++; if(a.pregnantDays>=270) this.giveBirth(a); }
     if(a.sick){ a.sickDays++; a.health-=1; if(a.sickDays>20||this.rng.chance(a.ph.immunity*0.3)){ a.sick=null; a.health=clamp(a.health+10,0,100); } }
@@ -593,33 +602,89 @@ World.deserialize=function(json){
 if(typeof document!=='undefined' && typeof window!=='undefined'){
 let W=new World(1405);
 let speed=1, paused=false, mapMode='geo', selected=null, selType=null, tab='world', histYear=null;
+let followId=null;
+const TILE=10, WORLD_PX_W=960, WORLD_PX_H=600;
+const CAM={x:0,y:0,zoom:1};
+function clampCam(){ const vw=$('map').width/CAM.zoom, vh=$('map').height/CAM.zoom; CAM.x=clamp(CAM.x,0,Math.max(0,WORLD_PX_W-vw)); CAM.y=clamp(CAM.y,0,Math.max(0,WORLD_PX_H-vh)); if(vw>=WORLD_PX_W) CAM.x=0; if(vh>=WORLD_PX_H) CAM.y=0; }
+function screenToWorld(sx,sy){ const r=$('map').getBoundingClientRect(); const cx=(sx-r.left)/r.width*$('map').width, cy=(sy-r.top)/r.height*$('map').height; return {x:CAM.x+cx/CAM.zoom, y:CAM.y+cy/CAM.zoom}; }
+function zoomAt(sx,sy,f){ const b=screenToWorld(sx,sy); CAM.zoom=clamp(CAM.zoom*f,0.6,6); const a=screenToWorld(sx,sy); CAM.x+=b.x-a.x; CAM.y+=b.y-a.y; clampCam(); updateZoomLabel(); }
+function fitCamera(){ CAM.zoom=1; CAM.x=0; CAM.y=0; updateZoomLabel(); }
+function updateZoomLabel(){ const z=$('zoomLabel'); if(z) z.textContent='زوم '+Math.round(CAM.zoom*100)+'٪'; const f=$('btnFollow'); if(f){ const a=followId!=null?W.agentById(followId):null; f.textContent=(a&&a.alive)?'دنبال‌کردن: '+a.name+' (لغو)':'دنبال‌کردن'; } }
+function followAgent(id){ followId=id; selected=id; selType='agent'; if(id!=null){ const a=W.agentById(id); if(a&&a.alive){ CAM.zoom=Math.max(CAM.zoom,3); } } updateZoomLabel(); renderPanel(); }
+function stopFollow(){ followId=null; updateZoomLabel(); }
 const $=id=>document.getElementById(id);
 const BIOME_COLOR={ocean:'#14425e',coast:'#3d7a8c',lake:'#2a6a8c',river:'#2a7a9c',plains:'#7a9a4a',forest:'#2f6b2f',desert:'#c2a15a',mountain:'#7a7a7a',snow:'#e8eef2',swamp:'#4a6b3a',fertile:'#8ab04a'};
 const NATION_COLORS=['#c0392b','#2980b9','#27ae60','#8e44ad','#d35400','#16a085','#c0392b','#7f8c8d','#b7950b','#2e86c1'];
 function fa(n){ return Math.round(n*10)/10; }
-function drawMap(){
-  const cv=$('map'), ctx=cv.getContext('2d'); const tw=cv.width/W.W, th=cv.height/W.H;
+function tileColor(t,i){
+  let col=BIOME_COLOR[t.biome]||'#555';
   const snap=histYear?W.snapshots[histYear]:null;
-  for(let i=0;i<W.tiles.length;i++){ const t=W.tiles[i]; let col=BIOME_COLOR[t.biome]||'#555';
-    if(mapMode==='pop'){ const p=W.agents.filter(a=>Math.round(a.x)===t.x&&Math.round(a.y)===t.y).length; col=p>2?'#e74c3c':p>0?'#e8b04b':BIOME_COLOR[t.biome]; }
-    if(mapMode==='res'){ col=t.minerals>0.7?'#b0b0b0':t.foodDensity>0.7?'#7fb069':t.water>0.9?'#3d7a8c':BIOME_COLOR[t.biome]; }
-    if(mapMode==='culture'){ col=t.tribe?NATION_COLORS[(t.tribe-1)%10]:BIOME_COLOR[t.biome]; }
-    if(mapMode==='tribe'){ col=t.tribe?NATION_COLORS[(t.tribe-1)%10]:'#222'; }
-    if(mapMode==='nation'||mapMode==='border'){ if(snap){ const ch=snap.charCodeAt(i)-97; col=ch>0?NATION_COLORS[(ch-1)%10]:BIOME_COLOR[t.biome]; } else col=t.nation?NATION_COLORS[(t.nation-1)%10]:BIOME_COLOR[t.biome]; }
-    if(mapMode==='war'){ const atWar=W.wars.some(w=>w.active); col=atWar&&t.nation?'#c0392b':BIOME_COLOR[t.biome]; }
-    if(mapMode==='trade'){ col=W.cities.some(c=>c.x===t.x&&c.y===t.y)?'#d9a441':BIOME_COLOR[t.biome]; }
-    if(mapMode==='econ'){ col=W.prices.food>10?'#c0392b':W.prices.food>6?'#e8b04b':'#7fb069'; }
-    if(mapMode==='tech'){ const tr=W.tribes.find(x=>x.id===t.tribe); col=tr?(tr.era>4?'#8e44ad':tr.era>2?'#2980b9':BIOME_COLOR[t.biome]):BIOME_COLOR[t.biome]; }
-    ctx.fillStyle=col; ctx.fillRect(t.x*tw,t.y*th,tw+0.5,th+0.5);
-  }
-  // night overlay
-  const hour=(W.day%1); if(W.seasonIdx===3){ ctx.fillStyle='rgba(200,220,255,0.08)'; ctx.fillRect(0,0,cv.width,cv.height); }
-  // cities
-  for(const c of W.cities){ ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(c.x*tw+tw/2,c.y*th+th/2,Math.max(3,c.pop/8),0,7); ctx.fill(); ctx.fillStyle='#000'; ctx.font='9px sans-serif'; ctx.fillText(c.stage[0],c.x*tw+2,c.y*th+8); }
-  // agents as dots
-  for(const a of W.agents){ ctx.fillStyle=a.sick?'#ff4444':a.pregnant?'#ff9ff3':'#ffe9a8'; ctx.fillRect(a.x*tw+2,a.y*th+2,3,3); }
-  $('mapLegend').textContent='حالت: '+$('mapMode').selectedOptions[0].text+' — '+(histYear?('نقشه تاریخی سال '+histYear):'نقشه فعلی')+' — نقطه‌های روشن: موجودات (قرمز=بیمار) — دایره سفید: شهر';
+  if(mapMode==='pop'){ const p=W.agents.filter(a=>Math.round(a.x)===t.x&&Math.round(a.y)===t.y).length; col=p>2?'#e74c3c':p>0?'#e8b04b':BIOME_COLOR[t.biome]; }
+  if(mapMode==='res'){ col=t.minerals>0.7?'#b0b0b0':t.foodDensity>0.7?'#7fb069':t.water>0.9?'#3d7a8c':BIOME_COLOR[t.biome]; }
+  if(mapMode==='culture'){ col=t.tribe?NATION_COLORS[(t.tribe-1)%10]:BIOME_COLOR[t.biome]; }
+  if(mapMode==='tribe'){ col=t.tribe?NATION_COLORS[(t.tribe-1)%10]:'#222'; }
+  if(mapMode==='nation'||mapMode==='border'){ if(snap){ const ch=snap.charCodeAt(i)-97; col=ch>0?NATION_COLORS[(ch-1)%10]:BIOME_COLOR[t.biome]; } else col=t.nation?NATION_COLORS[(t.nation-1)%10]:BIOME_COLOR[t.biome]; }
+  if(mapMode==='war'){ const atWar=W.wars.some(w=>w.active); col=atWar&&t.nation?'#c0392b':BIOME_COLOR[t.biome]; }
+  if(mapMode==='trade'){ col=W.cities.some(c=>c.x===t.x&&c.y===t.y)?'#d9a441':BIOME_COLOR[t.biome]; }
+  if(mapMode==='econ'){ col=W.prices.food>10?'#c0392b':W.prices.food>6?'#e8b04b':'#7fb069'; }
+  if(mapMode==='tech'){ const tr=W.tribes.find(x=>x.id===t.tribe); col=tr?(tr.era>4?'#8e44ad':tr.era>2?'#2980b9':BIOME_COLOR[t.biome]):BIOME_COLOR[t.biome]; }
+  return col;
 }
+function drawAgentFigure(ctx,a,px,py,scale){
+  // a real little person, not a dot: shadow, body (tribe colour), head, walk bob
+  const tribeCol=a.tribe?NATION_COLORS[(a.tribe-1)%10]:'#8a7a5a';
+  const skin=['#e8b88a','#d9a066','#c98d5a','#a06a3a'][Math.round((a.ph?a.ph.skin:0.5)*3)]||'#d9a066';
+  const bob=a.moving?Math.sin(performance.now()/90+a.id*1.7)*scale*0.12:0;
+  ctx.fillStyle='rgba(0,0,0,0.35)';
+  ctx.beginPath(); ctx.ellipse(px,py+scale*0.55,scale*0.42,scale*0.14,0,0,7); ctx.fill();
+  ctx.fillStyle=a.sick?'#c0392b':tribeCol;
+  ctx.fillRect(px-scale*0.32,py-scale*0.1+bob,scale*0.64,scale*0.62);
+  ctx.fillStyle=skin;
+  ctx.beginPath(); ctx.arc(px,py-scale*0.28+bob,scale*0.34,0,7); ctx.fill();
+  ctx.fillStyle='#1a1206';
+  ctx.fillRect(px-scale*0.36,py-scale*0.28+bob,scale*0.72,scale*0.12);
+  if(a.pregnant){ ctx.fillStyle='#ff9ff3'; ctx.beginPath(); ctx.arc(px,py+scale*0.2+bob,scale*0.2,0,7); ctx.fill(); }
+  if(a.health<35){ ctx.fillStyle='#e74c3c'; ctx.fillRect(px-scale*0.5,py-scale*0.75,scale,scale*0.12); ctx.fillStyle='#7fb069'; ctx.fillRect(px-scale*0.5,py-scale*0.75,scale*clamp(a.health/100,0,1),scale*0.12); }
+}
+function drawMap(){
+  const cv=$('map'), ctx=cv.getContext('2d');
+  const now=performance.now();
+  // smooth visual movement: px/py glide toward the sim tile (a.x,a.y)
+  for(const a of W.agents){ if(a.px==null){a.px=a.x;a.py=a.y;} const k=0.14; a.px+=(a.x-a.px)*k; a.py+=(a.y-a.py)*k; if(Math.abs(a.x-a.px)<0.01) a.px=a.x; if(Math.abs(a.y-a.py)<0.01) a.py=a.y; }
+  // follow: keep the followed agent centred
+  if(followId!=null){ const fa=W.agentById(followId); if(fa&&fa.alive){ CAM.x=clamp((fa.px+0.5)*TILE-cv.width/CAM.zoom/2,0,Math.max(0,WORLD_PX_W-cv.width/CAM.zoom)); CAM.y=clamp((fa.py+0.5)*TILE-cv.height/CAM.zoom/2,0,Math.max(0,WORLD_PX_H-cv.height/CAM.zoom)); } else followId=null; }
+  ctx.clearRect(0,0,cv.width,cv.height);
+  ctx.save(); ctx.scale(CAM.zoom,CAM.zoom); ctx.translate(-CAM.x,-CAM.y);
+  const x0=Math.max(0,Math.floor(CAM.x/TILE)-1), x1=Math.min(W.W-1,Math.ceil((CAM.x+cv.width/CAM.zoom)/TILE)+1);
+  const y0=Math.max(0,Math.floor(CAM.y/TILE)-1), y1=Math.min(W.H-1,Math.ceil((CAM.y+cv.height/CAM.zoom)/TILE)+1);
+  for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++){ const t=W.tiles[y*W.W+x]; ctx.fillStyle=tileColor(t,y*W.W+x); ctx.fillRect(x*TILE,y*TILE,TILE+0.6,TILE+0.6);
+    if(CAM.zoom>=3){ if(t.biome==='forest'){ ctx.fillStyle='#1e4d1e'; ctx.beginPath(); ctx.arc(x*TILE+5,y*TILE+5,3,0,7); ctx.fill(); } if(t.biome==='mountain'){ ctx.fillStyle='#5a5a5a'; ctx.beginPath(); ctx.moveTo(x*TILE+1,y*TILE+9); ctx.lineTo(x*TILE+5,y*TILE+2); ctx.lineTo(x*TILE+9,y*TILE+9); ctx.fill(); } if(t.biome==='river'||t.biome==='lake'){ ctx.fillStyle='rgba(255,255,255,0.25)'; ctx.fillRect(x*TILE+2,y*TILE+4,6,2); } } }
+  if(W.seasonIdx===3){ ctx.fillStyle='rgba(200,220,255,0.08)'; ctx.fillRect(CAM.x,CAM.y,cv.width/CAM.zoom,cv.height/CAM.zoom); }
+  // cities: real little buildings when zoomed, circle when far
+  for(const c of W.cities){ const cx=c.x*TILE+TILE/2, cy=c.y*TILE+TILE/2;
+    if(CAM.zoom>=2){ ctx.fillStyle='#f2e6c8'; ctx.fillRect(cx-7,cy-4,14,9); ctx.fillStyle='#c0392b'; ctx.beginPath(); ctx.moveTo(cx-8,cy-4); ctx.lineTo(cx,cy-11); ctx.lineTo(cx+8,cy-4); ctx.fill(); ctx.fillStyle='#000'; ctx.font='bold 8px sans-serif'; ctx.textAlign='center'; ctx.fillText(c.stage[0],cx,cy+12); ctx.textAlign='left'; }
+    else { ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(cx,cy,Math.max(3,c.pop/8),0,7); ctx.fill(); ctx.fillStyle='#000'; ctx.font='9px sans-serif'; ctx.fillText(c.stage[0],cx+2,cy+3); } }
+  // agents
+  const close=CAM.zoom>=1.6;
+  for(const a of W.agents){ const px=(a.px+0.5)*TILE, py=(a.py+0.5)*TILE;
+    if(px<CAM.x-20||px>CAM.x+cv.width/CAM.zoom+20||py<CAM.y-20||py>CAM.y+cv.height/CAM.zoom+20) continue;
+    if(close){ drawAgentFigure(ctx,a,px,py,TILE); } else { ctx.fillStyle=a.sick?'#ff4444':a.pregnant?'#ff9ff3':'#ffe9a8'; ctx.fillRect(px-1.5,py-1.5,3,3); }
+    if(a.id===selected||a.id===followId){ ctx.strokeStyle=a.id===followId?'#d9a441':'#fff'; ctx.lineWidth=2/CAM.zoom; ctx.beginPath(); ctx.arc(px,py,TILE*0.9,0,7); ctx.stroke(); }
+    if((CAM.zoom>=2.5||a.id===followId||a.id===selected)&&a.name){ ctx.font='bold '+(11/CAM.zoom*1.6)+'px sans-serif'; ctx.fillStyle='rgba(0,0,0,0.7)'; const label=a.name+' — '+(a.lastAction||''); const w=ctx.measureText(label).width; ctx.fillRect(px-w/2-3,py-TILE-14/CAM.zoom*1.2,w+6,13/CAM.zoom*1.4); ctx.fillStyle='#fff'; ctx.textAlign='center'; ctx.fillText(label,px,py-TILE-4/CAM.zoom*1.2); ctx.textAlign='left'; } }
+  ctx.restore();
+  // follow bar
+  const fb=$('followBar');
+  if(fb){ const fa=followId!=null?W.agentById(followId):null; if(fa&&fa.alive){ fb.style.display='block'; fb.innerHTML='<b>'+fa.name+' '+fa.family+'</b> — '+Math.floor(fa.age)+' ساله — در حال: '+fa.lastAction+' — غذا '+Math.round(fa.needs.food)+' — سلامت '+Math.round(fa.health)+' — ('+Math.round(fa.px)+','+Math.round(fa.py)+') <button class="btn" id="btnUnfollow">لغو دنبال‌کردن</button>'; const u=$('btnUnfollow'); if(u) u.onclick=()=>{ stopFollow(); }; } else fb.style.display='none'; }
+  $('mapLegend').textContent='حالت: '+$('mapMode').selectedOptions[0].text+' — '+(histYear?('نقشه تاریخی سال '+histYear):'نقشه فعلی')+' — زوم '+Math.round(CAM.zoom*100)+'٪ — از نزدیک: آدم‌ها را با بدن و سر می‌بینی؛ دور: نقطه‌های روشن (قرمز=بیمار) — دایره/خانه سفید: شهر';
+  const _now=performance.now(); if(_now-_lastMini>1000){ _lastMini=_now; drawMinimap(); }
+}
+function drawMinimap(){
+  const mm=$('minimap'); if(!mm) return; const ctx=mm.getContext('2d'); const sx=mm.width/WORLD_PX_W, sy=mm.height/WORLD_PX_H;
+  for(let i=0;i<W.tiles.length;i++){ const t=W.tiles[i]; ctx.fillStyle=BIOME_COLOR[t.biome]||'#555'; ctx.fillRect(t.x*sx*TILE,t.y*sy*TILE,sx*TILE+0.5,sy*TILE+0.5); }
+  ctx.fillStyle='#ffe9a8'; for(const a of W.agents){ ctx.fillRect((a.px+0.5)*TILE*sx,(a.py+0.5)*TILE*sy,1.5,1.5); }
+  ctx.strokeStyle='#fff'; ctx.lineWidth=1.5; ctx.strokeRect(CAM.x*sx,CAM.y*sy,($('map').width/CAM.zoom)*sx,($('map').height/CAM.zoom)*sy);
+}
+
 function renderDash(){
   const m=W.macro();
   $('dash').innerHTML=['سال '+W.year+' — روز '+W.day+' — '+W.seasonName(),'جمعیت '+m.pop,'زنده '+W.agents.length,'شهرها '+m.cities,'کشورها '+m.nations,'قبیله‌ها '+m.tribes,'قیمت غذا '+fa(m.foodPrice),'تولید ناخالص '+m.gdp,'جنگ فعال '+m.wars,'سطح فناوری '+fa(m.tech),'بیکاری '+m.unemployed,'فقر '+m.poor,'نابرابری (جینی) '+m.gini].map(s=>'<span class="stat">'+s+'</span>').join('');
@@ -632,6 +697,7 @@ function agentCard(a){
   +'<p>سن '+Math.floor(a.age)+' ('+lifeStage(a.age)+') — جنس '+(a.sex==='male'?'مرد':'زن')+' — نسل '+a.generation+' — شغل '+(JOBS.find(j=>j.id===a.job)||{name:'—'}).name+' — سلامت '+Math.round(a.health)+' '+(a.sick?'— بیمار: '+a.sick:'')+(a.pregnant?' — باردار ('+a.pregnantDays+'/۲۷۰ روز)':'')+'</p>'
   +'<p>پول '+Math.round(a.money)+' — غذا '+a.food+' — چوب '+a.wood+' — سنگ '+a.stone+' — آهن '+a.iron+' — ابزار '+a.tool+' — بدهی '+a.debt+'</p>'
   +'<p>قد '+Math.round(a.ph.height)+' سانتی‌متر — طول عمر مورد انتظار '+Math.round(a.ph.lifespan)+' سال — ایمنی '+Math.round(a.ph.immunity*100)+'٪ — باروری '+Math.round(a.ph.fertility*100)+'٪</p>'
+  +'<p><button class="btn" onclick="window.__follow('+a.id+')">دنبال‌کردن از نزدیک</button> <button class="btn" onclick="window.__zoomTo('+a.id+')">زوم روی این موجود</button></p>'
   +'<h4>ژنوم (۱۲ ژن، هر کدام ۲ آلل)</h4><table>'+GENE_KEYS.map(k=>'<tr><td>'+k+'</td><td>'+a.genome[k][0].toFixed(2)+' / '+a.genome[k][1].toFixed(2)+'</td></tr>').join('')+'</table>'
   +'<h4>شخصیت</h4><p>'+TRAITS.map(t=>t+': '+a.traits[t]).join(' — ')+'</p>'
   +'<h4>مهارت‌ها</h4><p>'+SKILLS.map(s=>s+' '+a.skills[s].lvl).join(' — ')+'</p>'
@@ -664,7 +730,8 @@ function renderPanel(){
   }
   else if(tab==='agents'){
     const list=W.agents.slice(0,60);
-    el.innerHTML='<h3>موجودات زنده ('+W.agents.length+') — برای جزئیات روی یکی بزنید</h3>'+list.map(a=>'<div class="rowitem" data-agent="'+a.id+'">'+a.name+' '+a.family+' — '+Math.floor(a.age)+' ساله — '+(JOBS.find(j=>j.id===a.job)||{name:'بیکار'}).name+' — سلامت '+Math.round(a.health)+' — پول '+Math.round(a.money)+'</div>').join('');
+    el.innerHTML='<h3>موجودات زنده ('+W.agents.length+') — برای جزئیات روی یکی بزنید، یا دنبالش کنید</h3>'+list.map(a=>'<div class="rowitem" data-agent="'+a.id+'">'+a.name+' '+a.family+' — '+Math.floor(a.age)+' ساله — '+(JOBS.find(j=>j.id===a.job)||{name:'بیکار'}).name+' — سلامت '+Math.round(a.health)+' — پول '+Math.round(a.money)+' <button class="btn" data-follow="'+a.id+'">دنبال‌کردن</button></div>').join('');
+    el.querySelectorAll('[data-follow]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); followAgent(+b.dataset.follow); });
     el.querySelectorAll('[data-agent]').forEach(d=>d.onclick=()=>{ selected=+d.dataset.agent; selType='agent'; renderPanel(); });
     if(selType==='agent'){ const a=W.agentById(selected); if(a&&a.alive) el.innerHTML=agentCard(a)+el.innerHTML; }
   }
@@ -705,11 +772,15 @@ function renderPanel(){
   }
 }
 window.__backFamily=function(){ renderPanel(); };
+window.__follow=function(id){ followAgent(id); };
+window.__zoomTo=function(id){ const a=W.agentById(id); if(!a) return; selected=id; selType='agent'; CAM.zoom=4; CAM.x=clamp((a.x+0.5)*TILE-$('map').width/CAM.zoom/2,0,Math.max(0,WORLD_PX_W-$('map').width/CAM.zoom)); CAM.y=clamp((a.y+0.5)*TILE-$('map').height/CAM.zoom/2,0,Math.max(0,WORLD_PX_H-$('map').height/CAM.zoom)); updateZoomLabel(); renderPanel(); };
 function loop(){
   if(!paused){ for(let i=0;i<speed;i++) W.tick(); }
-  drawMap(); renderDash(); renderPanel();
+  renderDash(); renderPanel();
   setTimeout(loop, speed>=50?50:200);
 }
+let _lastDraw=0,_lastMini=0;
+function renderLoop(){ const now=performance.now(); if(now-_lastDraw>=80){ _lastDraw=now; drawMap(); } requestAnimationFrame(renderLoop); }
 // init UI
 (function init(){
   $('tabs').innerHTML=TABS.map(([id,n])=>'<button data-tab="'+id+'" class="'+(id===tab?'active':'')+'">'+n+'</button>').join('');
@@ -727,18 +798,36 @@ function loop(){
   $('btnExport').onclick=()=>{ const blob=new Blob([W.serialize()],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='living-world-save.json'; a.click(); };
   $('btnImport').onclick=()=>$('importFile').click();
   $('importFile').onchange=e=>{ const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ W=World.deserialize(r.result); renderPanel(); }; r.readAsText(f); };
-  $('map').onclick=e=>{ const r=e.target.getBoundingClientRect(); const x=Math.floor((e.clientX-r.left)/r.width*W.W), y=Math.floor((e.clientY-r.top)/r.height*W.H);
-    const t=W.tileAt(x,y); const ag=W.agents.find(a=>Math.round(a.x)===x&&Math.round(a.y)===y);
-    const city=W.cities.find(c=>c.x===x&&c.y===y);
-    if(ag){ selected=ag.id; selType='agent'; tab='agents'; renderPanel(); $('tileInfo').textContent='موجود انتخاب شد: '+ag.name+' — پنل موجودات را ببینید.'; }
-    else if(city){ tab='cities'; renderPanel(); $('tileInfo').textContent='شهر: '+city.name+' — '+city.stage+' — جمعیت '+city.pop; }
-    else if(t){ $('tileInfo').textContent='کاشی ('+x+','+y+') — '+t.biome+' — دما '+Math.round(t.temp)+'° — حاصلخیزی '+fa(t.fertility)+' — آب '+fa(t.water)+' — مواد معدنی '+fa(t.minerals)+' — تراکم غذا '+fa(t.foodDensity)+' — بارش '+Math.round(t.rainfall)+' میلی‌متر'; }
-  };
+  // zoom / pan / follow controls (like God Sim)
+  const zi=$('btnZoomIn'), zo=$('btnZoomOut'), zf=$('btnZoomFit'), bf=$('btnFollow');
+  if(zi) zi.onclick=()=>zoomAt($('map').getBoundingClientRect().left+$('map').getBoundingClientRect().width/2,$('map').getBoundingClientRect().top+$('map').getBoundingClientRect().height/2,1.3);
+  if(zo) zo.onclick=()=>zoomAt($('map').getBoundingClientRect().left+$('map').getBoundingClientRect().width/2,$('map').getBoundingClientRect().top+$('map').getBoundingClientRect().height/2,1/1.3);
+  if(zf) zf.onclick=()=>{ stopFollow(); fitCamera(); };
+  if(bf) bf.onclick=()=>{ if(followId!=null) stopFollow(); else if(selected!=null&&selType==='agent') followAgent(selected); else if(W.agents.length) followAgent(W.agents[0].id); };
+  const mm=$('minimap'); if(mm) mm.onclick=e=>{ const r=mm.getBoundingClientRect(); const wx=(e.clientX-r.left)/r.width*WORLD_PX_W, wy=(e.clientY-r.top)/r.height*WORLD_PX_H; CAM.x=clamp(wx-$('map').width/CAM.zoom/2,0,Math.max(0,WORLD_PX_W-$('map').width/CAM.zoom)); CAM.y=clamp(wy-$('map').height/CAM.zoom/2,0,Math.max(0,WORLD_PX_H-$('map').height/CAM.zoom)); };
+  // pointer: drag to pan, pinch to zoom, tap to select (touch + mouse)
+  (function(){
+    const cv=$('map'); const pts=new Map(); let downX=0,downY=0,downT=0,moved=0,pinchD=0,pinchMid=null;
+    cv.addEventListener('pointerdown',e=>{ cv.setPointerCapture(e.pointerId); pts.set(e.pointerId,{x:e.clientX,y:e.clientY}); if(pts.size===1){ downX=e.clientX; downY=e.clientY; downT=Date.now(); moved=0; } if(pts.size===2){ const q=[...pts.values()]; pinchD=Math.hypot(q[0].x-q[1].x,q[0].y-q[1].y); pinchMid={x:(q[0].x+q[1].x)/2,y:(q[0].y+q[1].y)/2}; } });
+    cv.addEventListener('pointermove',e=>{ if(!pts.has(e.pointerId)) return; const prev=pts.get(e.pointerId); pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+      if(pts.size===2){ const q=[...pts.values()]; const d=Math.hypot(q[0].x-q[1].x,q[0].y-q[1].y); const mid={x:(q[0].x+q[1].x)/2,y:(q[0].y+q[1].y)/2}; if(pinchD>0) zoomAt(mid.x,mid.y,d/pinchD); if(pinchMid){ CAM.x-=(mid.x-pinchMid.x)/CAM.zoom*($('map').width/$('map').getBoundingClientRect().width); CAM.y-=(mid.y-pinchMid.y)/CAM.zoom*($('map').height/$('map').getBoundingClientRect().height); clampCam(); } pinchD=d; pinchMid=mid; moved=999; return; }
+      const dx=e.clientX-prev.x, dy=e.clientY-prev.y; moved+=Math.abs(dx)+Math.abs(dy); if(moved>6){ stopFollow(); const r=cv.getBoundingClientRect(); CAM.x-=dx/CAM.zoom*(cv.width/r.width); CAM.y-=dy/CAM.zoom*(cv.height/r.height); clampCam(); } });
+    const end=e=>{ pts.delete(e.pointerId); if(pts.size<2) pinchD=0; if(moved<=6&&Date.now()-downT<400){ handleTap(e); } };
+    cv.addEventListener('pointerup',end); cv.addEventListener('pointercancel',end);
+    cv.addEventListener('wheel',e=>{ e.preventDefault(); zoomAt(e.clientX,e.clientY,e.deltaY<0?1.15:1/1.15); },{passive:false});
+    cv.addEventListener('dblclick',e=>{ zoomAt(e.clientX,e.clientY,1.5); });
+    function handleTap(e){ const wpt=screenToWorld(e.clientX,e.clientY); const x=Math.floor(wpt.x/TILE), y=Math.floor(wpt.y/TILE);
+      const t=W.tileAt(x,y); let ag=null, bd=1e9; for(const a of W.agents){ const d=Math.hypot((a.px+0.5)*TILE-wpt.x,(a.py+0.5)*TILE-wpt.y); if(d<bd){bd=d;ag=a;} }
+      if(ag&&bd<Math.max(14,20/CAM.zoom)){ selected=ag.id; selType='agent'; tab='agents'; renderPanel(); $('tileInfo').textContent='موجود انتخاب شد: '+ag.name+' '+ag.family+' — '+(JOBS.find(j=>j.id===ag.job)||{name:'بیکار'}).name+' — برای دنبال‌کردن از نزدیک، دکمه «دنبال‌کردن» را بزنید.'; return; }
+      const city=W.cities.find(c=>c.x===x&&c.y===y);
+      if(city){ tab='cities'; renderPanel(); $('tileInfo').textContent='شهر: '+city.name+' — '+city.stage+' — جمعیت '+city.pop; }
+      else if(t){ $('tileInfo').textContent='کاشی ('+x+','+y+') — '+t.biome+' — دما '+Math.round(t.temp)+'° — حاصلخیزی '+fa(t.fertility)+' — آب '+fa(t.water)+' — مواد معدنی '+fa(t.minerals)+' — تراکم غذا '+fa(t.foodDensity)+' — بارش '+Math.round(t.rainfall)+' میلی‌متر'; } }
+  })();
   const GODS=[['createAgent','ایجاد موجود'],['removeAgent','حذف موجود'],['spawnFood','ایجاد غذا'],['disease','ایجاد بیماری'],['disaster','بلای طبیعی'],['drought','خشکسالی'],['rain','باران'],['grantTech','اعطای فناوری'],['startWar','آغاز جنگ'],['endWar','پایان جنگ'],['createCity','ایجاد شهر'],['money','ثروت به همه']];
   $('godBtns').innerHTML=GODS.map(([id,n])=>'<button class="btn" data-god="'+id+'">'+n+'</button>').join('');
   document.querySelectorAll('[data-god]').forEach(b=>b.onclick=()=>{ W.god(b.dataset.god); $('godLog').textContent='مداخله ثبت شد: '+b.textContent+' — سال '+W.year; renderPanel(); });
   setInterval(()=>{ try{ localStorage.setItem('livingworld-autosave',W.serialize()); }catch(e){} },60000);
-  loop();
+  loop(); renderLoop();
 })();
 }
 if(typeof module!=='undefined'&&module.exports){ module.exports={World,RNG,TECHS,JOBS,GENE_KEYS}; }

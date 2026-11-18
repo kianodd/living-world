@@ -53,7 +53,17 @@
 
 <main>
   <section id="mapWrap">
+    <div id="zoomBar">
+      <button id="btnZoomIn" class="btn" title="زوم نزدیک">＋</button>
+      <button id="btnZoomOut" class="btn" title="زوم دور">−</button>
+      <button id="btnZoomFit" class="btn">کل نقشه</button>
+      <button id="btnFollow" class="btn">دنبال‌کردن</button>
+      <span id="zoomLabel">زوم ۱۰۰٪</span>
+      <span class="hint">چرخ موس یا نیشگون = زوم، کشیدن = جابه‌جایی، دابل‌کلیک = زوم نزدیک</span>
+    </div>
     <canvas id="map" width="960" height="600"></canvas>
+    <div id="followBar" style="display:none"></div>
+    <canvas id="minimap" width="192" height="120" title="نقشه کوچک — برای پرش بزنید"></canvas>
     <div id="mapLegend"></div>
     <div id="tileInfo">روی نقشه بزنید تا کاشی، موجود یا شهر بررسی شود.</div>
     <div id="weatherBar"></div>

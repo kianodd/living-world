@@ -18,7 +18,13 @@ body{font-size:15px}
 input,select{background:#171310;color:var(--text);border:1px solid var(--line);border-radius:6px;padding:5px 8px;font-family:inherit}
 main{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:12px;padding:12px}
 #mapWrap{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px}
-#map{width:100%;height:auto;display:block;border-radius:8px;cursor:crosshair;background:#0e2a3a;touch-action:manipulation}
+#map{width:100%;height:auto;display:block;border-radius:8px;cursor:grab;background:#0e2a3a;touch-action:none}
+#map:active{cursor:grabbing}
+#zoomBar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px}
+#zoomBar .hint{font-size:12px;color:var(--muted)}
+#zoomLabel{font-size:13px;color:var(--accent);font-weight:bold}
+#followBar{background:#3a2f14;border:1px solid var(--accent);border-radius:8px;padding:8px;margin-top:8px;font-size:14px}
+#minimap{width:192px;height:120px;border:1px solid var(--line);border-radius:8px;margin-top:8px;cursor:pointer;display:block}
 #mapLegend{font-size:12px;color:var(--muted);margin-top:6px;display:flex;flex-wrap:wrap;gap:8px}
 #tileInfo{background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:8px;margin-top:8px;font-size:14px;min-height:44px}
 #weatherBar{margin-top:8px;font-size:13px;color:var(--muted)}
