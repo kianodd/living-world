@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>جهان زنده — LIVING WORLD</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header id="topbar">
+  <div class="brand"><span class="logo">◉</span><div><h1>جهان زنده</h1><small>LIVING WORLD — شبیه‌سازی حیات و تمدن</small></div></div>
+  <div id="dash" class="dash"></div>
+</header>
+
+<div id="controls">
+  <div class="ctl-group">
+    <button id="btnPause" class="btn">توقف</button>
+    <div class="speeds" id="speeds"></div>
+  </div>
+  <div class="ctl-group">
+    <label>بذر <input id="seedInput" type="number" value="1405"></label>
+    <button id="btnNew" class="btn">جهان تازه</button>
+    <button id="btnJump" class="btn">پرش به تاریخ</button>
+    <input id="jumpInput" type="number" value="10" min="1" max="10000" title="سال">
+  </div>
+  <div class="ctl-group">
+    <label>حالت نقشه
+      <select id="mapMode">
+        <option value="geo">جغرافیایی</option>
+        <option value="pop">جمعیت</option>
+        <option value="res">منابع</option>
+        <option value="culture">فرهنگ</option>
+        <option value="tribe">قبیله</option>
+        <option value="nation">کشور</option>
+        <option value="border">مرزها</option>
+        <option value="war">جنگ</option>
+        <option value="trade">تجارت</option>
+        <option value="econ">اقتصاد</option>
+        <option value="tech">فناوری</option>
+      </select>
+    </label>
+    <label>سال تاریخی <input id="histYear" type="number" value="" placeholder="فعلی"></label>
+    <button id="btnHist" class="btn">نمایش تاریخ</button>
+  </div>
+  <div class="ctl-group">
+    <button id="btnSave" class="btn">ذخیره</button>
+    <button id="btnLoad" class="btn">بارگذاری</button>
+    <button id="btnExport" class="btn">خروجی JSON</button>
+    <button id="btnImport" class="btn">ورودی JSON</button>
+    <input type="file" id="importFile" accept=".json" hidden>
+  </div>
+</div>
+
+<main>
+  <section id="mapWrap">
+    <canvas id="map" width="960" height="600"></canvas>
+    <div id="mapLegend"></div>
+    <div id="tileInfo">روی نقشه بزنید تا کاشی، موجود یا شهر بررسی شود.</div>
+    <div id="weatherBar"></div>
+  </section>
+
+  <section id="panels">
+    <nav id="tabs"></nav>
+    <div id="panelBody"></div>
+  </section>
+</main>
+
+<section id="godbar">
+  <h2>حالت خدا — مداخله</h2>
+  <div id="godBtns"></div>
+  <p id="godLog"></p>
+</section>
+
+<footer><small>جهان زنده — موتور شبیه‌سازی واقعی: ژنتیک مندلی، هوش مصنوعی سودمندی، اقتصاد عرضه/تقاضا، فرهنگ و زبان تکاملی، نسل‌های نامحدود. بدون ایموجی؛ همه‌چیز از وضعیت واقعی شبیه‌سازی خوانده می‌شود.</small></footer>
+<script src="app.js"></script>
+</body>
+</html>
